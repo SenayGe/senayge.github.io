@@ -36,159 +36,328 @@
   </div>
 
   <script id="markdown" type="text/markdown">
-# A Transformer by Hand
+  # A Transformer by Hand
 
-Before this, I had already read a lot of good resources on transformers, and they genuinely help. But I wanted to know whether I really understood the mechanics at an intuitive level. Make attention feel less mysterious. So, I decided to build a tiny transformer by hand, including the weights, with no training. I originally di this exercise back in 2023, and now I wanted to write it up.
+  Before this, I had already read a lot of good resources on transformers, and they genuinely help. But I wanted to know whether I really understood the mechanics at an intuitive level. Make attention feel less mysterious. So, I decided to build a tiny transformer by hand, including the weights, with no training. I originally di this exercise back in 2023, and now I wanted to write it up.
 
-### The Task
+  ## The Task
 
-I wanted a task that was simple enough to build by hand, but still felt like a real computation.
+  I wanted a task that was simple enough to build by hand, but still felt like a real computation.
 
-I chose **Fibonacci modulo 3**. Standard Fibonacci keeps growing, so the set of possible values is unbounded. But once you take everything modulo 3, each term becomes one of just three tokens: `0`, `1`, or `2`. That makes the output space small enough to manage, while keeping the underlying structure of the problem intact.
+  I chose **Fibonacci modulo 3**. Standard Fibonacci keeps growing, so the set of possible values is unbounded. But once you take everything modulo 3, each term becomes one of just three tokens: `0`, `1`, or `2`. That makes the output space small enough to manage, while keeping the underlying structure of the problem intact.
 
-The recurrence is the usual Fibonacci one,
-`F(n) = F(n - 1) + F(n - 2)`
+  The recurrence is the usual Fibonacci one,
+  `F(n) = F(n - 1) + F(n - 2)`
 
-except that after each addition we reduce modulo 3:
-`F(n) = (F(n - 1) + F(n - 2)) mod 3`
+  except that after each addition we reduce modulo 3:
+  `F(n) = (F(n - 1) + F(n - 2)) mod 3`
 
-If we start from `1, 1`, this gives:
-```
-1 1 2 0 2 2 1 0 1 ...
-```
+  If we start from `1, 1`, this gives:
+  ```
+  1 1 2 0 2 2 1 0 1 ...
+  ```
 
-We end up with just three tokens. The vocabulary is tiny, but the model still has to do something real. It needs to use the previous tokens to compute the next one.
+  We end up with just three tokens. The vocabulary is tiny, but the model still has to do something real, use the previous tokens to compute the next one.
 
-### The Model
+  ### The Model
 
-First, let's lay down the transformer code. We will use a stripped-down GPT-style block (a version of picoGPT).  
+  First, let's lay down the transformer code. We will use a stripped-down GPT-style block (a version of picoGPT).  
 
-```python
-import numpy as np
-
-
-# a minimal GPT-2 style forward pass. no LayerNorm, ReLU instead of GELU.
-
-# Dimensions: 
-# T = sequence length, D = embedding dim, V = vocab size, H = hidden dim
-
-def softmax(x):
-	# Softmax turns raw attention scores into probability distribution over the input token (sums to 1)
-	# (T, D) -> (T, D)
-    exp_x = np.exp(x - np.max(x, axis=-1, keepdims=True))
-    return exp_x / np.sum(exp_x, axis=-1, keepdims=True)
-
-def relu(x): 
-	# If a number is negative, it becomes 0.
-	# It intorodcues non-linearity. Since our task is an XOR-like problem, we need it. 
-    return np.maximum(0, x)
-
-def linear(x, w, b): 
-	# Standard nn layer
-	# (T, D_in) @ (D_in, D_out) + (D_out,) -> (T, D_out)
-    return x @ w + b
-
-def attention(q, k, v, mask):
-    # 1. q @ k.T -> (T, T) similarity scores between every pair of positions
-    # 2. / sqrt(D) -> keeps it stable (prevents scores from growing too large with embedding size)
-    # 3. + mask -> zeroes out "future" positions (after softmax, they become 0%)
-    # 4. softmax -> (T, T) attention weights (each row sums to 1)
-    # 5. @ v -> (T, D) weighted average of value vectors
-
-    return softmax(q @ k.T / np.sqrt(q.shape[-1]) + mask) @ v
-
-def causal_self_attention(x, c_attn, c_proj):
-	# Single-head causal self-attention
-    # c_attn projects x into Q, K, V: (T, D_q) -> (T, 3*D_q)
-    x = linear(x, **c_attn)
-    # Split into three (T, D) matrices
-    q, k, v = np.split(x, 3, axis=-1)
-    # The "Causal Mask" is a triangle of negative infinities. 
-	
-    # Upper-triangular mask of -inf. token at position i can only attend to positions <= i. This is because we want to hide fugure tokens.
-    causal_mask = (1 - np.tri(x.shape[0], dtype=x.dtype)) * -1e10
-    x = attention(q, k, v, causal_mask)
-    return linear(x, **c_proj)
-
-def ffn(x, c_fc, c_proj): 
-	# Feed forward network
-	# (T, D) -> (T, H) -> relu -> (T, H) -> (T, D)
-    return linear(relu(linear(x, **c_fc)), **c_proj)
-
-def transformer_block(x, attn, mlp):
-    # Each sub-layer has a residual connection: output = input + sublayer(input).
-    # This lets the original signal pass through unchanged — sub-layers only need to learn the "delta".
-    x = x + causal_self_attention(x, **attn)
-    x = x + ffn(x, **mlp)
-    return x
-
-def gpt(inputs, wte, wpe, blocks):
-    # Full forward pass. embed -> N transformer blocks -> project to vocab logits.
-    # inputs: (T,) integer token IDs
-    x = wte[inputs] + wpe[range(len(inputs))]  # (T, D) = token embedding + position embedding
-    for block in blocks:
-        x = transformer_block(x, **block) # (T, D) -> (T, D) per block
-    return x @ wte.T # (T, D) @ (D, V) -> (T, V) logits over vocabulary
-
-```
-
-# Setting up the Embeddings
-
-To make this work, we first need to translate our numbers into vectors.
-
-How big should our vectors be? We need **5 dimensions** (N_EMBED = 5). Why? Think of the vector as a scratchpad. We need 5 slots to keep track of the Position, and 3 slots to keep track of our Vocabulary (0, 1, 2). 2 + 3 = 5
-
-Why only 2 position slots? Fibonacci only depends on the **current** and **previous** number. A context window of 2 is all the math requires.
-
-*   `wte` stands for **Word Token Embeddings**.
-*   `wpe` stands for **Word Position Embeddings**.
-
-```python
-# --- 2. THE HANDCRAFTED BRAIN ---
-N_CTX = 2      # Context window: current + previous is all we need
-N_VOCAB = 3    # Numbers 0, 1, 2
-N_EMBED = 5    # 2 position slots + 3 token slots
-
-# wte: (V, D) = (3, 5)
-# Token 0 -> [0, 0, 1, 0, 0], Token 1 -> [0, 0, 0, 1, 0], etc.
-
-wte = np.zeros((N_VOCAB, N_EMBED))
-for i in range(N_VOCAB): wte[i, 2+i] = 1 # remember first 2 slots are for position
-
-# Position Embeddings (wpe): (N_CTX, D) = (2, 5)
-# Position 0 -> [1, 0, 0, 0, 0], Position 1 -> [0, 1, 0, 0, 0]
-wpe = np.zeros((N_CTX, N_EMBED))
-for i in range(N_CTX): wpe[i, i] = 1
-```
-
-# The 
+  ```python
+  import numpy as np
 
 
+  # a minimal GPT-2 style forward pass. no LayerNorm, ReLU instead of GELU.
 
-  <!--END OF BLOG-->
+  # Dimensions: 
+  # T = sequence length, D = embedding dim, V = vocab size, H = hidden dim
+
+  def softmax(x):
+          # Softmax turns raw attention scores into probability distribution over the input token (sums to 1)
+          # (T, D) -> (T, D)
+      exp_x = np.exp(x - np.max(x, axis=-1, keepdims=True))
+      return exp_x / np.sum(exp_x, axis=-1, keepdims=True)
+
+  def relu(x): 
+          # If a number is negative, it becomes 0.
+          # It intorodcues non-linearity. Since our task is an XOR-like problem, we need it. 
+      return np.maximum(0, x)
+
+  def linear(x, w, b): 
+          # Standard nn layer
+          # (T, D_in) @ (D_in, D_out) + (D_out,) -> (T, D_out)
+      return x @ w + b
+
+  def attention(q, k, v, mask):
+      # 1. q @ k.T -> (T, T) similarity scores between every pair of positions
+      # 2. / sqrt(D) -> keeps it stable (prevents scores from growing too large with embedding size)
+      # 3. + mask -> zeroes out "future" positions (after softmax, they become 0%)
+      # 4. softmax -> (T, T) attention weights (each row sums to 1)
+      # 5. @ v -> (T, D) weighted average of value vectors
+
+      return softmax(q @ k.T / np.sqrt(q.shape[-1]) + mask) @ v
+
+  def causal_self_attention(x, c_attn, c_proj):
+          # Single-head causal self-attention
+      # c_attn projects x into Q, K, V: (T, D_q) -> (T, 3*D_q)
+      x = linear(x, **c_attn)
+      # Split into three (T, D) matrices
+      q, k, v = np.split(x, 3, axis=-1)
+      # The "Causal Mask" is a triangle of negative infinities. 
+          
+      # Upper-triangular mask of -inf. token at position i can only attend to positions <= i. This is because we want to hide fugure tokens.
+      causal_mask = (1 - np.tri(x.shape[0], dtype=x.dtype)) * -1e10
+      x = attention(q, k, v, causal_mask)
+      return linear(x, **c_proj)
+
+  def ffn(x, c_fc, c_proj): 
+          # Feed forward network
+          # (T, D) -> (T, H) -> relu -> (T, H) -> (T, D)
+      return linear(relu(linear(x, **c_fc)), **c_proj)
+
+  def transformer_block(x, attn, mlp):
+      # Each sub-layer has a residual connection: output = input + sublayer(input).
+      # This lets the original signal pass through unchanged — sub-layers only need to learn the "delta".
+      x = x + causal_self_attention(x, **attn)
+      x = x + ffn(x, **mlp)
+      return x
+
+  def gpt(inputs, wte, wpe, blocks):
+      # Full forward pass. embed -> N transformer blocks -> project to vocab logits.
+      # inputs: (T,) integer token IDs
+      x = wte[inputs] + wpe[range(len(inputs))]  # (T, D) = token embedding + position embedding
+      for block in blocks:
+          x = transformer_block(x, **block) # (T, D) -> (T, D) per block
+      return x @ wte.T # (T, D) @ (D, V) -> (T, V) logits over vocabulary
+
+  ```
+
+  ## Setting up the Embeddings
+
+  To make this work, we first need to translate our numbers into vectors.
+
+  For each token in the input sequence, the model needs to know "which token it is" and "where it is positioned in the sequence". We have 3 possible tokens and 2 possible positions. Why only 2 position slots? Fibonacci only depends on the **current** and **previous** number. We can use more slots for position but it just becomes unnecessary.
+  So we can use 5-dimensional embedding, `N_EMBED = 5`. It's the smallest vector that can encode both pieces of information.
+
+  In the code below,
+
+  *   `wte` stands for Word Token Embeddings.
+  *   `wpe` stands for Word Position Embeddings.
+
+  ```python
+  # --- 2. THE HANDCRAFTED BRAIN ---
+  N_CTX = 2      # Context window: current + previous is all we need
+  N_VOCAB = 3    # Numbers 0, 1, 2
+  N_EMBED = 5    # 2 position slots + 3 token slots
+
+  # wte: (V, D) = (3, 5)
+  # Token 0 -> [0, 0, 1, 0, 0], Token 1 -> [0, 0, 0, 1, 0], etc.
+
+  wte = np.zeros((N_VOCAB, N_EMBED))
+  for i in range(N_VOCAB): wte[i, 2+i] = 1 # remember first 2 slots are for position
+
+  # Position Embeddings (wpe): (N_CTX, D) = (2, 5)
+  # Position 0 -> [1, 0, 0, 0, 0], Position 1 -> [0, 1, 0, 0, 0]
+  wpe = np.zeros((N_CTX, N_EMBED))
+  for i in range(N_CTX): wpe[i, i] = 1
+  ```
+
+  This creates the token embedding matrix
+
+  $$\text{wte}_{(3 \times 5)} = \begin{bmatrix} \color{gray}{0} & \color{gray}{0} & \mathbf{1} & 0 & 0 \\ \color{gray}{0} & \color{gray}{0} & 0 & \mathbf{1} & 0 \\ \color{gray}{0} & \color{gray}{0} & 0 & 0 & \mathbf{1} \end{bmatrix} \quad \text{wpe}_{(2 \times 5)} = \begin{bmatrix} \mathbf{1} & 0 & \color{gray}{0} & \color{gray}{0} & \color{gray}{0} \\ 0 & \mathbf{1} & \color{gray}{0} & \color{gray}{0} & \color{gray}{0} \end{bmatrix}$$
+
+
+  If take the sequence `"1, 1, 2"` as an example and encode it as described above, then we get a `2x5` (`N_CTX x N_EMBED`) vector embedding. The input matrix $\mathbf{x}$ would look like:
+
+  $$
+    \mathbf{x}_{(2 \times 5)} = \text{tok\_emb} + \text{pos\_emb} =
+    \begin{bmatrix} 
+    \underbrace{1 \quad 0}_{\text{position}} & \underbrace{0 \quad 1 \quad 0}_{\text{token}} \\ \underbrace{0 \quad 1}_{\text{position}} & \underbrace{0 \quad 0 \quad 1}_{\text{token}} 
+    \end{bmatrix}
+  $$
+  The first row means “token "1" at position 0.”
+  The second means “token "2" at position 1.”
+  That is the whole input representation.
+
+
+  ## Constructing the Attention Weights
+
+  Attention is what allows the transformer to look at other positions in the sequence and pull in the pieces of information it needs for the task at hand.
+
+  For our task, this means that attention needs to gather the two tokens needed to to solve the next number in the fibonacci. 
+
+  Let's consider the sequence "`1, 1, 2`". As we know, the context window is 2, so the only tokens the model sees are `1` and `2`. 
+
+  With input sequence now being "`1,2`", the ideal attention pattern we want is:
+
+  - position 0 attends only to itself (preceding tokens are not important for the task)
+  - position 1 attends equally to position 1 (itself) and position 0.
+
+  So the attention weight we want are:
+
+  $$\text{Attn\_weights}_{desired} = \begin{bmatrix} \mathbf{1.0} & 0.0 \\ \mathbf{0.5} & \mathbf{0.5} \end{bmatrix}$$
+
+  Position 0 attends 100% to itself. While position 1 splits its attention 50/50 between itself and position 0. 
+
+  But the question is how do arrive to this point. Let's just go throuhg the whole attention mechanism and hope it becomes clear.
+
+  If we look at the transformer code from earlier, the attention part of the attention head is:
+
+  ```python
+  def attention(q, k, v, mask):
+      # 1. q @ k.T -> (T, T) similarity scores between every pair of positions
+      # 2. / sqrt(D) -> keeps it stable (prevents scores from growing too large with embedding size)
+      # 3. + mask -> zeroes out "future" positions (after softmax, they become 0%)
+      # 4. softmax -> (T, T) attention weights (each row sums to 1)
+      # 5. @ v -> (T, D) weighted average of value vectors
+
+      return softmax(q @ k.T / np.sqrt(q.shape[-1]) + mask) @ v
+  ```
+  The code shows parameters `qkv`. These stand for "query", "key" and "value". `mask` is just a matrix that prevents the model from looking ahead and seeing the future tokens it is supposed to predict. 
+
+  This attention part is often explained to be as a look up table. Hopefully, this becomes clear to us here.
+
+  ### Designing Q, K, and V from First Principles
+
+  We said attention mechanism lets positions talk to each other. The standard transformer way to do this is with `q`, `k` and `v`. But what are they exactly? Here is how we can put it:
+  
+  - Querry (`q`) = "which position am I looking for"
+  - Key (`k`) = "here is my position"
+  - Value (`v`) = "if you attend to me, here's my message"
+
+  For our task, we said we want position 1 to look at both positions equally (50/50). Here is how we can do that:
+
+  We build a single weight matrix `c_attn` of shape `5 x 15` `(N_EMBED x 3*(N_EMBED))` that generates `qkv` matrix.The 15 columns are three blocks of 5. The first 5 produce `q`, the next 5 produce `k`, the last 5 produce `v`.
+  
+ 
+  - **`k` weights**: the simplest key design is where each position just broadcasts its position index. position 0 gets `[1,0,0,0,0]`  and position 1 gets  `[0,1,0,0,0]`. Simple!
+
+
+
+  - **`q` weights**: here, we want position 0 to match only key 0. Position 1 to match both key 0 and key 1 equally. I use a large constant (S = 255) here - more on why in a moment.
+
+    $$ \begin{bmatrix}
+  S & 0 & 0 & 0 & 0 \\
+  S & S & 0 & 0 & 0 \\
+  0 & 0 & 0 & 0 & 0 \\
+  0 & 0 & 0 & 0 & 0 \\
+  0 & 0 & 0 & 0 & 0
+  \end{bmatrix}. $$
+
+  - **`v` weights**: The value vectors should carry the actual token identity. This is the data we want to retrieve.
+
+  Why a large constant `S`? In attention, each query-key pair first gets an attention score, which is just their dot product. If a query has S in the same coordinate where a key has 1, that dot product becomes large. If they do not align, it stays small or zero. This creates a big gap in the attention scores, so softmax makes the model focus on the positions we want. The value of `S` can be anything, as long as it is large enough to create a clear gap between the attention scores.
+
+
+  Here's the weights of `c_attn` laid out in full. The three blocks are `q` (cols 0–4), `k` (cols 5–9), and `v` (cols 10–14):
+
+$$w\_c\_attn_{(5 \times 15)} = \underset{
+  \underbrace{\hspace{15em}}_{\text{Q cols}} \;\;
+  \underbrace{\hspace{11em}}_{\text{K cols}} \;\;
+  \underbrace{\hspace{10em}}_{\text{V cols}}
+}{\left[\begin{array}{ccccc|ccccc|ccccc}
+  \mathbf{255} & 0 & 0 & 0 & 0 & \mathbf{1} & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 \\
+  \mathbf{255} & \mathbf{255} & 0 & 0 & 0 & 0 & \mathbf{1} & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 \\
+  0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & \mathbf{1} & 0 & 0 \\
+  0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & \mathbf{1} & 0 \\
+  0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & \mathbf{1}
+\end{array}\right]}$$
+
+  
+  `c_attn` is a fully-connected layer. To get the acutal `qkv` matrix we need to multiply the input $\mathbf{X}$ (the embedding vector) by `w_c_attn`. If we split that into three `N_CTX x N_EMBED` matrices, we get the `q`, `k`, and `v` weights.
+
+  $$q = \begin{bmatrix} 255 & 0 & 0 & 0 & 0 \\ 255 & 255 & 0 & 0 & 0 \end{bmatrix} \quad k = \begin{bmatrix} 1 & 0 & 0 & 0 & 0 \\ 0 & 1 & 0 & 0 & 0 \end{bmatrix} \quad v = \begin{bmatrix} 0 & 0 & 0 & \mathbf{1} & 0 \\ 0 & 0 & 0 & 0 & \mathbf{1} \end{bmatrix}$$
+
+  Look at `v`. Position 0 carries `[0,1,0]` (token 1's one-hot) and position 1 carries `[0,0,1]` (token 2's one-hot). These are the identitites of the last two tokens in our example sequence, "`1, 1, 2`".
+
+  Now the dot products. $q \cdot k^\top$ tells us how much each position wants to attend to each other position:
+ 
+  $$q \cdot k^\top = \begin{bmatrix} 255 & 0 & 0 & 0 & 0 \\ 255 & 255 & 0 & 0 & 0 \end{bmatrix} \cdot \begin{bmatrix} 1 & 0 \\ 0 & 1 \\ 0 & 0 \\ 0 & 0 \\ 0 & 0 \end{bmatrix} = \begin{bmatrix} 255 & 0 \\ 255 & 255 \end{bmatrix}$$
+
+  After scaling by $1/\sqrt{5}$:
+
+  $$\text{scaled} = \frac{1}{\sqrt{5}} \cdot \begin{bmatrix} 255 & 0 \\ 255 & 255 \end{bmatrix} = \begin{bmatrix} 114 & 0 \\ 114 & 114 \end{bmatrix}$$
+
+  The causal mask ensures position $i$ can only attend to positions $\leq i$. For a $2 \times 2$ matrix, this is an upper-triangular matrix of $-\infty$:
+
+  $$\text{causal\_mask} = \begin{bmatrix} 0 & -\infty \\ 0 & 0 \end{bmatrix}$$
+
+  Adding the mask zeroes out future positions after softmax:
+
+  $$\text{masked} = \begin{bmatrix} 114 & 0 \\ 114 & 114 \end{bmatrix} + \begin{bmatrix} 0 & -\infty \\ 0 & 0 \end{bmatrix} = \begin{bmatrix} 114 & \mathbf{-\infty} \\ 114 & 114 \end{bmatrix}$$
+
+  Softmax turns these into proper probabilities:
+
+  $$\text{attn\_weights} = \text{softmax}\!\left(\begin{bmatrix} 114 & -\infty \\ 114 & 114 \end{bmatrix}\right) = \begin{bmatrix} \mathbf{1.0} & 0.0 \\ \mathbf{0.5} & \mathbf{0.5} \end{bmatrix}$$
+
+  Exactly what we wanted. We just arrived at the Attention weights we desired at the begining. Position 0 attends 100% to itself (the mask blocked everything else). Position 1 splits 50/50 between both positions. That 50/50 split is the heart of the Fibonacci computation. It grabs both tokens with equal weight.
+
+
+  Now multiply the attention weights by $v$ to get the weighted average:
+
+  $$\text{attn\_out} = \begin{bmatrix} 1.0 & 0.0 \\ 0.5 & 0.5 \end{bmatrix} \cdot \begin{bmatrix} 0 & 0 & 0 & \mathbf{1} & 0 \\ 0 & 0 & 0 & 0 & \mathbf{1} \end{bmatrix} = \begin{bmatrix} 0 & 0 & 0 & \mathbf{1} & 0 \\ 0 & 0 & 0 & \mathbf{0.5} & \mathbf{0.5} \end{bmatrix}$$
+
+  Here's where things get interesting. Position 0 copies token 1's identity straight through: `[0, 0, 0, 1, 0]`. But position 1's output is `[0, 0, 0, 0.5, 0.5]` — literally "half token-1, half token-2." The model has blended the two operands into a single vector.
+
+  The attention output then passes through `c_proj`, another fully-connected layer like `c_attn`. For our task, I will choose a projection matrix that amplifies the token-identity slots by 10× while zeroing out everything else:
+
+  $$w\_c\_proj_{(5 \times 5)} = \begin{bmatrix} 0 & 0 & 0 & 0 & 0 \\ 0 & 0 & 0 & 0 & 0 \\ 0 & 0 & \mathbf{10} & 0 & 0 \\ 0 & 0 & 0 & \mathbf{10} & 0 \\ 0 & 0 & 0 & 0 & \mathbf{10} \end{bmatrix}$$
+
+  Why 10×? The blended signal `[0.5, 0.5]` is small. We want it to stand out (remain sharp and loud) even after the residual signal that will be in the next step.
+
+  $$\text{projected} = \begin{bmatrix} 0 & 0 & 0 & 1 & 0 \\ 0 & 0 & 0 & 0.5 & 0.5 \end{bmatrix} \cdot \begin{bmatrix} 0 & 0 & 0 & 0 & 0 \\ 0 & 0 & 0 & 0 & 0 \\ 0 & 0 & \mathbf{10} & 0 & 0 \\ 0 & 0 & 0 & \mathbf{10} & 0 \\ 0 & 0 & 0 & 0 & \mathbf{10} \end{bmatrix} = \begin{bmatrix} 0 & 0 & 0 & \mathbf{10} & 0 \\ 0 & 0 & 0 & \mathbf{5} & \mathbf{5} \end{bmatrix}$$
+
+  Finally, the **residual connection** adds the original $\mathbf{x}$ back in. This is a standard transformer pattern — every sublayer adds its output to its input, so the original signal always passes through:
+ 
+  $$\mathbf{x}_{\text{after attn}} = \underbrace{\begin{bmatrix} 1 & 0 & 0 & 1 & 0 \\ 0 & 1 & 0 & 0 & 1 \end{bmatrix}}_{\text{original } \mathbf{x}} + \underbrace{\begin{bmatrix} 0 & 0 & 0 & 10 & 0 \\ 0 & 0 & 0 & 5 & 5 \end{bmatrix}}_{\text{attention output}} = \begin{bmatrix} 1 & 0 & 0 & \mathbf{11} & 0 \\ 0 & 1 & 0 & \mathbf{5} & \mathbf{6} \end{bmatrix}$$
+   
+
+<!--If we Focus on position 1's token slots: `[0, 5, 6]`. Why not  `[0, 5, 5]`? The attention did produce a perfectly symmetric  blend — `[0, 5, 5]`. But the residual connection added back  position 1's original embedding `[0, 0, 1]`, nudging the last  slot from 5 to 6. This doesn't affect the final answer — addition  is commutative, so the MLP will treat `{1, 2}` and `{2, 1}`  identically. What matters is that both operand identities are now  packed into a single vector, ready for the MLP to combine them. -->
+
+
+  <!--EOB-->
   </script>
 
-  <script>
-    const md = document.getElementById('markdown').textContent;
-    const content = document.getElementById('content');
-    content.innerHTML = marked.parse(md);
+<script>
+  let mdText = document.getElementById('markdown').textContent;
 
-    if (window.hljs) {
-      content.querySelectorAll('pre code').forEach((block) => {
-        if ([...block.classList].some((className) => className.startsWith('language-') || className.startsWith('lang-'))) {
-          hljs.highlightElement(block);
-        }
-      });
-    }
+  // 1. Protect math blocks from marked's parser
+  const mathBlocks = [];
+  mdText = mdText.replace(/\$\$([\s\S]*?)\$\$/g, (match) => {
+    mathBlocks.push(match);
+    return `%%MATH_BLOCK_${mathBlocks.length - 1}%%`;
+  });
+  mdText = mdText.replace(/\$([^\$\n]+?)\$/g, (match) => {
+    mathBlocks.push(match);
+    return `%%MATH_BLOCK_${mathBlocks.length - 1}%%`;
+  });
 
-    renderMathInElement(content, {
-      delimiters:[
-        { left: '$$', right: '$$', display: true },
-        { left: '$', right: '$', display: false },
-        { left: '\\(', right: '\\)', display: false },
-        { left: '\\[', right: '\\]', display: true }
-      ]
+  // 2. Parse markdown (math placeholders are safe plain text now)
+  const content = document.getElementById('content');
+  let html = marked.parse(mdText);
+
+  // 3. Restore math blocks before handing to KaTeX
+  html = html.replace(/%%MATH_BLOCK_(\d+)%%/g, (_, i) => mathBlocks[parseInt(i)]);
+  content.innerHTML = html;
+
+  // 4. Syntax highlighting
+  if (window.hljs) {
+    content.querySelectorAll('pre code').forEach((block) => {
+      if ([...block.classList].some((c) => c.startsWith('language-') || c.startsWith('lang-'))) {
+        hljs.highlightElement(block);
+      }
     });
-  </script>
+  }
+
+  // 5. Render math
+  renderMathInElement(content, {
+    delimiters: [
+      { left: '$$', right: '$$', display: true },
+      { left: '$',  right: '$',  display: false },
+      { left: '\\(', right: '\\)', display: false },
+      { left: '\\[', right: '\\]', display: true }
+    ]
+  });
+</script>
 </body>
 </html>
