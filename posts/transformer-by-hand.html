@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>adaptive chain-of-thought reasoning budgets · senay</title>
+  <link rel="stylesheet" href="../styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <!-- Updated Google Fonts to match index.html -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Geist+Mono:wght@400;500;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+</head>
+<body>
+  <div class="container">
+
+    <header>
+      <h1 class="site-title">senay</h1>
+      <nav>
+        <a href="/">home</a>
+        <a href="/posts.html">posts</a>
+      </nav>
+    </header>
+
+    <a href="/posts.html" class="back-link">← back to posts</a>
+    
+    <!-- The CSS we added will automatically make this use JetBrains Mono and look clean -->
+    <div class="post-meta">20260327</div>
+    <div class="post-content" id="content"></div>
+
+    <hr>
+
+  </div>
+
+  <script id="markdown" type="text/markdown">
+# A Transformer by Hand
+
+Before this, I had already read a lot of good resources on transformers, and they genuinely help. But I wanted to know whether I really understood the mechanics at an intuitive level. Make attention feel less mysterious. So, I decided to build a tiny transformer by hand, including the weights, with no training. I originally di this exercise back in 2023, and now I wanted to write it up.
+
+### The Task
+
+I wanted a task that was simple enough to build by hand, but still felt like a real computation.
+
+I chose **Fibonacci modulo 3**. Standard Fibonacci keeps growing, so the set of possible values is unbounded. But once you take everything modulo 3, each term becomes one of just three tokens: `0`, `1`, or `2`. That makes the output space small enough to manage, while keeping the underlying structure of the problem intact.
+
+The recurrence is the usual Fibonacci one,
+`F(n) = F(n - 1) + F(n - 2)`
+
+except that after each addition we reduce modulo 3:
+`F(n) = (F(n - 1) + F(n - 2)) mod 3`
+
+If we start from `1, 1`, this gives:
+```
+1 1 2 0 2 2 1 0 1 ...
+```
+
+We end up with just three tokens. The vocabulary is tiny, but the model still has to do something real. It needs to use the previous tokens to compute the next one.
+
+### The Model
+
+First, let's lay down the transformer code. We will use a stripped-down GPT-style block (a version of picoGPT).  
+
+```python
+import numpy as np
+
+
+# a minimal GPT-2 style forward pass. no LayerNorm, ReLU instead of GELU.
+
+# Dimensions: 
+# T = sequence length, D = embedding dim, V = vocab size, H = hidden dim
+
+def softmax(x):
+	# Softmax turns raw attention scores into probability distribution over the input token (sums to 1)
+	# (T, D) -> (T, D)
+    exp_x = np.exp(x - np.max(x, axis=-1, keepdims=True))
+    return exp_x / np.sum(exp_x, axis=-1, keepdims=True)
+
+def relu(x): 
+	# If a number is negative, it becomes 0.
+	# It intorodcues non-linearity. Since our task is an XOR-like problem, we need it. 
+    return np.maximum(0, x)
+
+def linear(x, w, b): 
+	# Standard nn layer
+	# (T, D_in) @ (D_in, D_out) + (D_out,) -> (T, D_out)
+    return x @ w + b
+
+def attention(q, k, v, mask):
+    # 1. q @ k.T -> (T, T) similarity scores between every pair of positions
+    # 2. / sqrt(D) -> keeps it stable (prevents scores from growing too large with embedding size)
+    # 3. + mask -> zeroes out "future" positions (after softmax, they become 0%)
+    # 4. softmax -> (T, T) attention weights (each row sums to 1)
+    # 5. @ v -> (T, D) weighted average of value vectors
+
+    return softmax(q @ k.T / np.sqrt(q.shape[-1]) + mask) @ v
+
+def causal_self_attention(x, c_attn, c_proj):
+	# Single-head causal self-attention
+    # c_attn projects x into Q, K, V: (T, D_q) -> (T, 3*D_q)
+    x = linear(x, **c_attn)
+    # Split into three (T, D) matrices
+    q, k, v = np.split(x, 3, axis=-1)
+    # The "Causal Mask" is a triangle of negative infinities. 
+	
+    # Upper-triangular mask of -inf. token at position i can only attend to positions <= i. This is because we want to hide fugure tokens.
+    causal_mask = (1 - np.tri(x.shape[0], dtype=x.dtype)) * -1e10
+    x = attention(q, k, v, causal_mask)
+    return linear(x, **c_proj)
+
+def ffn(x, c_fc, c_proj): 
+	# Feed forward network
+	# (T, D) -> (T, H) -> relu -> (T, H) -> (T, D)
+    return linear(relu(linear(x, **c_fc)), **c_proj)
+
+def transformer_block(x, attn, mlp):
+    # Each sub-layer has a residual connection: output = input + sublayer(input).
+    # This lets the original signal pass through unchanged — sub-layers only need to learn the "delta".
+    x = x + causal_self_attention(x, **attn)
+    x = x + ffn(x, **mlp)
+    return x
+
+def gpt(inputs, wte, wpe, blocks):
+    # Full forward pass. embed -> N transformer blocks -> project to vocab logits.
+    # inputs: (T,) integer token IDs
+    x = wte[inputs] + wpe[range(len(inputs))]  # (T, D) = token embedding + position embedding
+    for block in blocks:
+        x = transformer_block(x, **block) # (T, D) -> (T, D) per block
+    return x @ wte.T # (T, D) @ (D, V) -> (T, V) logits over vocabulary
+
+```
+
+# Setting up the Embeddings
+
+To make this work, we first need to translate our numbers into vectors.
+
+How big should our vectors be? We need **5 dimensions** (N_EMBED = 5). Why? Think of the vector as a scratchpad. We need 5 slots to keep track of the Position, and 3 slots to keep track of our Vocabulary (0, 1, 2). 2 + 3 = 5
+
+Why only 2 position slots? Fibonacci only depends on the **current** and **previous** number. A context window of 2 is all the math requires.
+
+*   `wte` stands for **Word Token Embeddings**.
+*   `wpe` stands for **Word Position Embeddings**.
+
+```python
+# --- 2. THE HANDCRAFTED BRAIN ---
+N_CTX = 2      # Context window: current + previous is all we need
+N_VOCAB = 3    # Numbers 0, 1, 2
+N_EMBED = 5    # 2 position slots + 3 token slots
+
+# wte: (V, D) = (3, 5)
+# Token 0 -> [0, 0, 1, 0, 0], Token 1 -> [0, 0, 0, 1, 0], etc.
+
+wte = np.zeros((N_VOCAB, N_EMBED))
+for i in range(N_VOCAB): wte[i, 2+i] = 1 # remember first 2 slots are for position
+
+# Position Embeddings (wpe): (N_CTX, D) = (2, 5)
+# Position 0 -> [1, 0, 0, 0, 0], Position 1 -> [0, 1, 0, 0, 0]
+wpe = np.zeros((N_CTX, N_EMBED))
+for i in range(N_CTX): wpe[i, i] = 1
+```
+
+# The 
+
+
+
+  <!--END OF BLOG-->
+  </script>
+
+  <script>
+    const md = document.getElementById('markdown').textContent;
+    const content = document.getElementById('content');
+    content.innerHTML = marked.parse(md);
+
+    if (window.hljs) {
+      content.querySelectorAll('pre code').forEach((block) => {
+        if ([...block.classList].some((className) => className.startsWith('language-') || className.startsWith('lang-'))) {
+          hljs.highlightElement(block);
+        }
+      });
+    }
+
+    renderMathInElement(content, {
+      delimiters:[
+        { left: '$$', right: '$$', display: true },
+        { left: '$', right: '$', display: false },
+        { left: '\\(', right: '\\)', display: false },
+        { left: '\\[', right: '\\]', display: true }
+      ]
+    });
+  </script>
+</body>
+</html>
