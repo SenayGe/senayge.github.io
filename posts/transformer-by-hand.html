@@ -466,14 +466,18 @@
 
   When we do argmax:
 
-  \operatorname{argmax}\begin{bmatrix} 15300 & 5 & 6 \end{bmatrix} = \mathbf{0} \quad \checkmark$$
+  $$\operatorname{argmax}\begin{bmatrix} 15300 & 5 & 6 \end{bmatrix} = \mathbf{0} \quad \checkmark$$
 
-  Token 0 wins by a landslide. The prediction is 0, which is (1 + 2) mod 3. Exactly right.
+  Token 0 wins here. The prediction is therefore 0, which is (1 + 2) mod 3. Exactly right.
 
 
-  That was it. We correctly predicted the next token.
+  That was it. We correctly predicted the next token in our example sequqnce.
 
   Thank you for reading! I hope this helped you understand transformers a little better, just as it did for me.
+  
+  Here are also a cuple of resources that I think go well with this post.
+
+  [Understanding Transformers... (beyond the Math)](https://kalomaze.bearblog.dev/understanding-transformers-beyond-the-math/)
 
   [The GPT-3 Architecture, on a Napkin](https://dugas.ch/artificial_curiosity/GPT_architecture.html)
 
