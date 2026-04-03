@@ -44,20 +44,24 @@
 
   I wanted a task that was simple enough to build by hand, but still felt like a real computation.
 
-  I chose **Fibonacci modulo 3**. Standard Fibonacci keeps growing, so the set of possible values is unbounded. But once you take everything modulo 3, each term becomes one of just three tokens: `0`, `1`, or `2`. That makes the output space small enough to manage, while keeping the underlying structure of the problem intact.
+  I chose **Fibonacci modulo 3**. Standard Fibonacci keeps growing, so the set of possible values is unbounded. But once you take everything modulo 3, each term becomes one of just three tokens: `0`, `1`, or `2`. That makes the output space small enough to manage.
 
   The recurrence is the usual Fibonacci one,
-  `F(n) = F(n - 1) + F(n - 2)`
+  ```
+  F(n) = F(n - 1) + F(n - 2)
+  ```
 
   except that after each addition we reduce modulo 3:
-  `F(n) = (F(n - 1) + F(n - 2)) mod 3`
+  ```
+  F(n) = (F(n - 1) + F(n - 2)) mod 3
+  ```
 
   If we start from `1, 1`, this gives:
   ```
   1 1 2 0 2 2 1 0 1 ...
   ```
 
-  We end up with just three tokens. The vocabulary is tiny, but the model still has to do something real, use the previous tokens to compute the next one.
+  We end up with just three tokens `[0, 1, 2]`. The vocabulary is tiny, but the model still has to use the previous tokens to compute the next one.
 
   ### The Model
 
@@ -136,8 +140,9 @@
 
   To make this work, we first need to translate our numbers into vectors.
 
-  For each token in the input sequence, the model needs to know "which token it is" and "where it is positioned in the sequence". We have 3 possible tokens and 2 possible positions. Why only 2 position slots? Fibonacci only depends on the **current** and **previous** number. We can use more slots for position but it just becomes unnecessary.
-  So we can use 5-dimensional embedding, `N_EMBED = 5`. It's the smallest vector that can encode both pieces of information.
+  For each token in the input sequence, the model needs to know "which token it is" and "where it is positioned in the sequence". We have 3 possible tokens and 2 possible positions. Why only 2 position slots? Fibonacci only depends on the current and previous number. We can use more slots for position, if we wanted, but it just becomes unnecessary.
+
+  So a 5-dimensional embedding should be enough (`N_EMBED = 5`). It's the smallest vector that can encode both pieces of information.
 
   In the code below,
 
@@ -145,7 +150,9 @@
   *   `wpe` stands for Word Position Embeddings.
 
   ```python
-  # --- 2. THE HANDCRAFTED BRAIN ---
+
+  # Embeddings
+
   N_CTX = 2      # Context window: current + previous is all we need
   N_VOCAB = 3    # Numbers 0, 1, 2
   N_EMBED = 5    # 2 position slots + 3 token slots
@@ -156,7 +163,7 @@
   wte = np.zeros((N_VOCAB, N_EMBED))
   for i in range(N_VOCAB): wte[i, 2+i] = 1 # remember first 2 slots are for position
 
-  # Position Embeddings (wpe): (N_CTX, D) = (2, 5)
+  # wpe: (N_CTX, D) = (2, 5)
   # Position 0 -> [1, 0, 0, 0, 0], Position 1 -> [0, 1, 0, 0, 0]
   wpe = np.zeros((N_CTX, N_EMBED))
   for i in range(N_CTX): wpe[i, i] = 1
@@ -251,17 +258,17 @@
 
   Here's the weights of `c_attn` laid out in full. The three blocks are `q` (cols 0–4), `k` (cols 5–9), and `v` (cols 10–14):
 
-$$w\_c\_attn_{(5 \times 15)} = \underset{
-  \underbrace{\hspace{15em}}_{\text{Q cols}} \;\;
-  \underbrace{\hspace{11em}}_{\text{K cols}} \;\;
-  \underbrace{\hspace{10em}}_{\text{V cols}}
-}{\left[\begin{array}{ccccc|ccccc|ccccc}
-  \mathbf{255} & 0 & 0 & 0 & 0 & \mathbf{1} & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 \\
-  \mathbf{255} & \mathbf{255} & 0 & 0 & 0 & 0 & \mathbf{1} & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 \\
-  0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & \mathbf{1} & 0 & 0 \\
-  0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & \mathbf{1} & 0 \\
-  0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & \mathbf{1}
-\end{array}\right]}$$
+  $$w\_c\_attn_{(5 \times 15)} = \underset{
+    \underbrace{\hspace{15em}}_{\text{Q cols}} \;\;
+    \underbrace{\hspace{11em}}_{\text{K cols}} \;\;
+    \underbrace{\hspace{10em}}_{\text{V cols}}
+  }{\left[\begin{array}{ccccc|ccccc|ccccc}
+    \mathbf{255} & 0 & 0 & 0 & 0 & \mathbf{1} & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 \\
+    \mathbf{255} & \mathbf{255} & 0 & 0 & 0 & 0 & \mathbf{1} & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 \\
+    0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & \mathbf{1} & 0 & 0 \\
+    0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & \mathbf{1} & 0 \\
+    0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & \mathbf{1}
+  \end{array}\right]}$$
 
   
   `c_attn` is a fully-connected layer. To get the acutal `qkv` matrix we need to multiply the input $\mathbf{X}$ (the embedding vector) by `w_c_attn`. If we split that into three `N_CTX x N_EMBED` matrices, we get the `q`, `k`, and `v` weights.
@@ -312,7 +319,163 @@ $$w\_c\_attn_{(5 \times 15)} = \underset{
   $$\mathbf{x}_{\text{after attn}} = \underbrace{\begin{bmatrix} 1 & 0 & 0 & 1 & 0 \\ 0 & 1 & 0 & 0 & 1 \end{bmatrix}}_{\text{original } \mathbf{x}} + \underbrace{\begin{bmatrix} 0 & 0 & 0 & 10 & 0 \\ 0 & 0 & 0 & 5 & 5 \end{bmatrix}}_{\text{attention output}} = \begin{bmatrix} 1 & 0 & 0 & \mathbf{11} & 0 \\ 0 & 1 & 0 & \mathbf{5} & \mathbf{6} \end{bmatrix}$$
    
 
-<!--If we Focus on position 1's token slots: `[0, 5, 6]`. Why not  `[0, 5, 5]`? The attention did produce a perfectly symmetric  blend — `[0, 5, 5]`. But the residual connection added back  position 1's original embedding `[0, 0, 1]`, nudging the last  slot from 5 to 6. This doesn't affect the final answer — addition  is commutative, so the MLP will treat `{1, 2}` and `{2, 1}`  identically. What matters is that both operand identities are now  packed into a single vector, ready for the MLP to combine them. -->
+  <!--If we Focus on position 1's token slots: `[0, 5, 6]`. Why not  `[0, 5, 5]`? The attention did produce a perfectly symmetric  blend — `[0, 5, 5]`. But the residual connection added back  position 1's original embedding `[0, 0, 1]`, nudging the last  slot from 5 to 6. This doesn't affect the final answer — addition  is commutative, so the MLP will treat `{1, 2}` and `{2, 1}`  identically. What matters is that both operand identities are now  packed into a single vector, ready for the MLP to combine them. -->
+
+
+
+
+
+  ## Designing the MLP
+
+  This part is actually easy. If you've ever drawn an MLP to solve an XOR problem, this should be straight forward. This is because modular addition has the same structure as the XOR problem. It can be solved by adding a hidden layer with non-linearity. Honestly, I could have chosen a different task/sequence where I would not need an MLP block. For tasks like Fibonacci mod 2 or Fibonacci parity, a simple linear function is enough to map the output of the attention head to the final answer.
+
+  Now, we want the MLP to *figure out which pair of tokens we're looking at, then output the right answer.* With a vocab size of 3 (tokens), there are 6 unordered pairs: `{0,0}`, `{1,1}`, `{2,2}`, `{0,1}`, `{0,2}`, `{1,2}`.
+
+  The first stage is to identify these pairs. We can have one neuron detect one pair. So we need a hidden layer with exactly 6 neurons.
+
+ Here’s how we make each neuron as a “pair detector.”. We give give it positive weights for the two token slots that belong to its pair, and negative weights everywhere else. We also add a bias of `-50` as a threshold. This way, the neuron only activates strongly when the correct pair is present. If the input is a wrong pair, the total staysnegative and ReLU clips it to zero.
+
+  For example, the last neuron detects `{1,2}`. Its weights on the token slots are `[-10, +10, +10]`: positive for slot 1 and slot 2, negative for slot 0. When the input has large values in the  token1 and token 2 positions (which is exactly what `{1,2}` looks like after attention), this neuron fires hard. When the wrong pair shows up, the negative weights drag the activation below the activation threshold.
+
+  In GPT-2's naming convention, this layer is called `c_fc`
+
+  ```python
+  # --- THE FULLY CONNECTED LAYER ---
+
+
+  # Remeber our dimensions: 
+  # T = sequence length, D = embedding dim, V = vocab size, H = hidden dim
+
+   
+  # c_fc: Expand to 6 hidden neurons. (D, H) = (5, 6)
+  W_fc = np.zeros((N_EMBED, 6))
+  W_fc[2:5, 0] = [ 10, -10, -10]   # Neuron 0: detects {0,0}
+  W_fc[2:5, 1] = [-10,  10, -10]   # Neuron 1: detects {1,1}
+  W_fc[2:5, 2] = [-10, -10,  10]   # Neuron 2: detects {2,2}
+  W_fc[2:5, 3] = [ 10,  10, -10]   # Neuron 3: detects {0,1}
+  W_fc[2:5, 4] = [ 10, -10,  10]   # Neuron 4: detects {0,2}
+  W_fc[2:5, 5] = [-10,  10,  10]   # Neuron 5: detects {1,2}
+   
+  # Bias of -50 acts as a threshold. Weak activations get killed to 0 by ReLU.
+  b_fc = np.full(6, -50.0)
+  ```
+
+  Here's the full weight matrix. Only rows 2–4 (the token slots) are nonzero. The position encoding isn't relevant to the MLP and that's why rows 1-2 are zero:
+   
+<!--$$W\_fc_{(5 \times 6)} = \begin{bmatrix} 0 & 0 & 0 & 0 & 0 & 0 \\ 0 & 0 & 0 & 0 & 0 & 0 \\ \hline \mathbf{10} & -10 & -10 & \mathbf{10} & \mathbf{10} & -10 \\ -10 & \mathbf{10} & -10 & \mathbf{10} & -10 & \mathbf{10} \\ -10 & -10 & \mathbf{10} & -10 & \mathbf{10} & \mathbf{10} \end{bmatrix}$$-->
+<!---->
+<!--$$b\_fc = \begin{bmatrix} -50 & -50 & -50 & -50 & -50 & -50 \end{bmatrix}$$-->
+   
+  <!--$$\underbrace{\hspace{0.8em}}_{N_0:\{0,0\}} \underbrace{\hspace{0.1em}}_{N_1:\{1,1\}} \underbrace{\hspace{0.8em}}_{N_2:\{2,2\}} \underbrace{\hspace{0.8em}}_{N_3:\{0,1\}} \underbrace{\hspace{0.8em}}_{N_4:\{0,2\}} \underbrace{\hspace{0.8em}}_{N_5:\{1,2\}}$$-->
+   
+  $$W\_fc_{(5 \times 6)} = \begin{bmatrix} 0 & 0 & 0 & 0 & 0 & 0 \\ 0 & 0 & 0 & 0 & 0 & 0 \\ \mathbf{10} & -10 & -10 & \mathbf{10} & \mathbf{10} & -10 \\ -10 & \mathbf{10} & -10 & \mathbf{10} & -10 & \mathbf{10} \\ -10 & -10 & \mathbf{10} & -10 & \mathbf{10} & \mathbf{10} \end{bmatrix}$$
+
+  $$b\_fc = \begin{bmatrix} -50 & -50 & -50 & -50 & -50 & -50 \end{bmatrix}$$
+
+  Read each column top-to-bottom (looking only at the token rows). Wherever you see `+10`, that's a token the pair contains. Wherever you see `-10`, it's a token the pair doesn't contain.
+
+  Now let's work with our running example. Let's see again the input sequence after attention, which now will pass through the MLP layer:
+
+  $$\mathbf{x}_{\text{after attn}} = \begin{bmatrix} 1 & 0 & 0 & \mathbf{11} & 0 \\ 0 & 1 & 0 & \mathbf{5} & \mathbf{6} \end{bmatrix}$$
+
+  We take position 1's token slots (`[0, 5, 6]`) and multiply it by $ W\_fc$. Why just position 1? In reality, the MLP processes both rows, but we only read the prediction (for the next token) from the last position. That's how autoregressive models work. Position 0 would just predict position 1, which we already know.
+ 
+  $$\mathbf{x}[1] \cdot W\_fc = \begin{bmatrix} 0 & 1 & 0 & 5 & 6 \end{bmatrix} \cdot W\_fc = \begin{bmatrix} -110 & -10 & 10 & -10 & 10 & 110 \end{bmatrix}$$
+   
+  Let's verify Neuron 5, the `{1,2}` detector, by hand. Its weights on the token slots are `[-10, +10, +10]`:
+   
+  $$N_5 = \underbrace{(-10) \times 0}_{tok_0} + \underbrace{10 \times 5}_{tok_1} + \underbrace{10 \times 6}_{tok_2} = 110 \quad\checkmark$$
+   
+  <!--Both active tokens get rewarded. Now contrast with Neuron 1, the {1, 1} detector, with weights $[-10, +10, -10]$:-->
+  <!---->
+  <!--$$N_1 = \underbrace{(-10) \times 0}_{tok_0} + \underbrace{10 \times 5}_{tok_1} + \underbrace{(-10) \times 6}_{tok_2} = -10$$-->
+  <!---->
+  <!--Neuron 1 puts a *negative* weight on token 2. It's specifically looking for the case where only token 1 is big.-->
+  <!---->
+  Now, adding the bias of `-50`:
+   
+  $$\begin{bmatrix} -110 & -10 & 10 & -10 & 10 & 110 \end{bmatrix} \text{+ bias} = \begin{bmatrix} \mathbf{-160} & \mathbf{-60} & \mathbf{-40} & \mathbf{-60} & \mathbf{-40} & 60 \end{bmatrix}$$
+   
+  After ReLU (anything negative becomes zero):
+   
+  $$\text{ReLU}\!\left(\begin{bmatrix} -160 & -60 & -40 & -60 & -40 & 60 \end{bmatrix}\right) = \begin{bmatrix} 0 & 0 & 0 & 0 & 0 & \mathbf{60} \end{bmatrix}$$
+   
+  One neuron survives: Neuron 5, the `{1,2}` detector. Clean and decisive. This is the "cross-pair" case, when the two input tokens are different, exactly one neuron fires. 
+   
+  *(Quick aside: with "diagonal" pairs like `{1,1}`, three neurons fire instead of one. For instance, `{1,1}` triggers Neurons 1, 3 and 5. We'll handle that with the projection layer next.)*
+
+
+  Now we need to map each neuron's activation to the correct mod-3 result. The projection matrix c_proj takes us from 6 hidden neurons back to our 5-dimensional embedding space (but really, only the 3 token slots matter).
+
+  We need to keep one thing in mindy though. When `{1,1}` fires, three neurons activate, N1 (the real detector) plus N3 and N5 (false positives). So we design the projection weights so that the false positives cancel each other out. 
+
+  For cross-pairs like our `{1,2}` example, only one neuron fires, so no cancellation is needed. The projection just routes the single activation straight to the answer.
+ 
+  ```python
+  # c_proj: Contract from 6 neurons back to embedding dim. (H, D) = (6, 5)
+  # Target 0 is index 2, Target 1 is index 3, Target 2 is index 4
+  W_proj = np.zeros((6, N_EMBED))
+  W_proj[0, 2:5] = [ 255, -255, -255]  # {0,0} -> 0
+  W_proj[1, 2:5] = [-255, -255,  255]  # {1,1} -> 2
+  W_proj[2, 2:5] = [-255,  255, -255]  # {2,2} -> 1
+  W_proj[3, 2:5] = [    0,  255,     0]  # {0,1} -> 1
+  W_proj[4, 2:5] = [    0,     0,  255]  # {0,2} -> 2
+  W_proj[5, 2:5] = [ 255,     0,     0]  # {1,2} -> 0
+  b_proj = np.zeros(N_EMBED)
+   
+  # Pack everything so the engine can read it
+  MODEL = {
+      "wte": wte, "wpe": wpe,
+      "blocks": [{
+          "attn": {
+              "c_attn": {"w": w_c_attn, "b": np.zeros(N_EMBED * 3)},
+              "c_proj": {"w": w_attn_proj, "b": np.zeros(N_EMBED)}
+          },
+          "mlp": {
+              "c_fc":   {"w": W_fc, "b": b_fc},
+              "c_proj": {"w": W_proj, "b": b_proj}
+          }
+      }]
+  }
+  ```
+
+  The diagonal detectors (N0–N2), neurons that detect paris with the same values, have `-255`s to suppress wrong answers. They need these because false-positive cross-pair neurons also fire. The cross-pair rows (N3–N5) only put weight on a single answer slot. 
+
+  Going back to our example, we had a hidden state `[0, 0, 0, 0, 0, 60]`. Only Neuron 5 fired, so the projection is just one row of W_proj scaled by 60
+
+
+  $$\text{MLP out} = 60 \cdot W\_proj[5] = 60 \cdot \begin{bmatrix} 0 & 0 & \mathbf{255} & 0 & 0 \end{bmatrix} = \begin{bmatrix} 0 & 0 & \mathbf{15300} & 0 & 0 \end{bmatrix}$$
+ 
+ 
+  One neuron, means one answer. All the score lands on token `0`.
+ 
+  After the residual connection adds back $\mathbf{x}_{\text{after attn}}$:
+   
+  $$\mathbf{x}_{\text{final}}[1] = \begin{bmatrix} 0 & 1 & 0 & 5 & 6 \end{bmatrix} + \begin{bmatrix} 0 & 0 & 15300 & 0 & 0 \end{bmatrix} = \begin{bmatrix} 0 & 1 & \mathbf{15300} & 5 & 6 \end{bmatrix}$$
+   
+  That `15300` in dim 2 (the tok0 slot) is enormous. The `5` and `6` from the residual are rounding errors by comparison.
+
+  The last thing left is the final logits. The only thing the `gpt()` function does is project the final hidden state into vocabulary logits by multiplying with `wte.T`. Because our token embeddings are one-hot, we get the token-slot values.
+
+  $$\text{wte}^\top_{(5 \times 3)} = \begin{bmatrix} 0 & 0 & 0 \\ 0 & 0 & 0 \\ 1 & 0 & 0 \\ 0 & 1 & 0 \\ 0 & 0 & 1 \end{bmatrix}$$
+
+  Running our example:
+
+
+  $$\text{logits}[1] = \begin{bmatrix} 0 & 1 & 15300 & 5 & 6 \end{bmatrix} \cdot \text{wte}^\top = \begin{bmatrix} \mathbf{15300} & 5 & 6 \end{bmatrix}$$
+
+  When we do argmax:
+
+  \operatorname{argmax}\begin{bmatrix} 15300 & 5 & 6 \end{bmatrix} = \mathbf{0} \quad \checkmark$$
+
+  Token 0 wins by a landslide. The prediction is 0, which is (1 + 2) mod 3. Exactly right.
+
+
+  That was it. We correctly predicted the next token.
+
+  Thank you for reading! I hope this helped you understand transformers a little better, just as it did for me.
+
+  [The GPT-3 Architecture, on a Napkin](https://dugas.ch/artificial_curiosity/GPT_architecture.html)
 
 
   <!--EOB-->
