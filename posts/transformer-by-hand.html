@@ -378,7 +378,7 @@
 
   $$\mathbf{x}_{\text{after attn}} = \begin{bmatrix} 1 & 0 & 0 & \mathbf{11} & 0 \\ 0 & 1 & 0 & \mathbf{5} & \mathbf{6} \end{bmatrix}$$
 
-  We take position 1's token slots (`[0, 5, 6]`) and multiply it by $ W\_fc$. Why just position 1? In reality, the MLP processes both rows, but we only read the prediction (for the next token) from the last position. That's how autoregressive models work. Position 0 would just predict position 1, which we already know.
+  We take position 1's token slots (`[0, 5, 6]`) and multiply it by $ W\_fc$. Why just position 1? In reality, the MLP processes both rows, but next token prediciton is based only on the last position. That's how autoregressive models work. Position 0 would just predict position 1, which we already know.
  
   $$\mathbf{x}[1] \cdot W\_fc = \begin{bmatrix} 0 & 1 & 0 & 5 & 6 \end{bmatrix} \cdot W\_fc = \begin{bmatrix} -110 & -10 & 10 & -10 & 10 & 110 \end{bmatrix}$$
    
