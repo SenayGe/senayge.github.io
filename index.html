@@ -4,10 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Senay</title>
+    <link rel="icon" type="image/png" sizes="512x512" href="favicon.png" />
     <link rel="stylesheet" href="styles.css" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <!-- Updated Google Fonts with 500 and 600 weights, plus JetBrains Mono -->
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Geist+Mono:wght@400;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Geist+Mono:wght@400;500;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
   </head>
@@ -16,24 +18,25 @@
       <header>
         <h1 class="site-title">senay</h1>
         <nav>
-          <a href="/">home</a>
-          <a href="/posts.html">posts</a>
+          <a href="./">home</a>
+          <a href="posts.html">posts</a>
         </nav>
       </header>
 
       <div class="bio">
-        <!--<p>ml researcher. making sand think</p>-->
-        <!--<p>llm reasoning · multi-agent systems · clinical decision support</p>-->
         <p>machine learning researcher</p>
         <p>currently working on LLMs. i still find it wild that predicting the next token got us here.</p>
         <p>ultimately, i want to play a part in building AGI that is accessible to everyone.</p>
         
+        <!-- Moved bio-links inside the bio div so it shares the left border -->
+        <p class="bio-links">
+          <a href="https://github.com/SenayGe">github</a>
+          <a href="www.linkedin.com/in/senay-aklilu">linkedin</a>
+          <a href="https://scholar.google.com/citations?user=1_X_l5AAAAAJ&hl=en">google scholar</a>
+          <a href="https://x.com/latentsen">x dot com</a>
+        </p>
       </div>
-      <p class="bio-links">
-          <a href="https://github.com/">github</a>
-          <a href="https://linkedin.com/">linkedin</a>
-          <a href="https://scholar.google.com/">google scholar</a>
-      </p>
+      
       <hr />
 
        <section>
@@ -41,7 +44,6 @@
         <ul>
           <li>
             LLMs, reasoning, agentic RL, continual learning
-            <!--LLMs, Reasoning, Agentic RL, Continual Learning-->
           </li>
         </ul>
       </section>
@@ -52,16 +54,17 @@
         <h2><span class="hash">#</span> selected research</h2>
         <ul>
           <li>
-            jan 2026 - <a href="#">Enhancing medical diagnostic reasoning in SLMs using reinforcement learning</a>
+            <span class="date">jan 2026</span> <a href="#">Enhancing medical diagnostic reasoning in SLMs using reinforcement learning</a>
           </li>
           <li>
-            apr 2024 - <a href="#">Llm-based framework for administrative task automation in healthcare</a> 
+            <span class="date">apr 2024</span> <a href="#">LLM-based framework for administrative task automation in healthcare</a> 
           </li>
           <li>
-            2026 - <a href="#">Multi-Agent system for patient discharge prediction</a>
+            <span class="date">2026</span> <a href="#">Multi-Agent system for patient discharge prediction</a>
           </li>
           <li>
-            dec 2024 - <a href="#"> Accelerating digital twin development with generative AI: a framework for 3D modeling and data integration          </li>
+            <span class="date">dec 2024</span> <a href="#">Accelerating digital twin development with generative AI: a framework for 3D modeling and data integration</a>
+          </li>
         </ul>
       </section>
 
@@ -71,42 +74,38 @@
         <h2><span class="hash">#</span> projects</h2>
         <ul>
           <li>
-            <a href="#">Adaptive reasoniing budget</a> — adjusting the reasoning
-            trace budget for SLMs
-          </li>
-          <li><a href="#">Smoltorhc</a> lightweight autorgrad engine</li>
+            <a href="https://github.com/SenayGe/merl-env">MD-Reasoner 3B</a> & <a href="https://github.com/SenayGe/merl-env">8B</a>— reasoning LLMs trained with RL for medical diagnosis. </li>
           <li>
-            <a href="#">Env-inite</a> turn anything to a verfieable rl training
-            environment
+          <li>
+            <a href="https://github.com/SenayGe/merl-env">MeRL-Env</a> — small Python library for building clinical RL environments for LLM agents. </li>
+          <li>
+            <a href="#">Adaptive Reasoning for Small Medical LLMs</a> —Efficient diagnostic reasoning with adaptive stopping
+          </li>
+          <li>
+            <a href="https://github.com/SenayGe/smoltorch">Smoltorch</a> — lightweight autograd engine
           </li>
         </ul>
       </section>
 
       <hr />
 
-      <!--<section>-->
-      <!--  <h2><span class="hash">#</span> posts</h2>-->
-      <!--  <ul>-->
-      <!--    <li>-->
-      <!--      20260327 --->
-      <!--      <a href="posts/adaptive-cot.html"-->
-      <!--        >adaptive chain-of-thought reasoning budgets</a-->
-      <!--      >-->
-      <!--    </li>-->
-      <!--    <li>-->
-      <!--      20260315 --->
-      <!--      <a href="posts/grpo-medical.html"-->
-      <!--        >training small LLMs for medical reasoning with GRPO</a-->
-      <!--      >-->
-      <!--    </li>-->
-      <!--    <li>-->
-      <!--      20260301 --->
-      <!--      <a href="posts/prior-auth.html"-->
-      <!--        >why prior authorization is broken</a-->
-      <!--      >-->
-      <!--    </li>-->
-      <!--  </ul>-->
-      <!--</section>-->
+      <section>
+        <h2><span class="hash">#</span> posts</h2>
+        <ul>
+          <li>
+            <span class="date">001</span>
+            <a href="posts/transformer-by-hand.html">a transformer by hand</a>
+          </li>
+          <!--<li>-->
+          <!--  <span class="date">20260315</span>-->
+          <!--  <a href="posts/grpo-medical.html">training small LLMs for medical reasoning with GRPO</a>-->
+          <!--</li>-->
+          <!--<li>-->
+          <!--  <span class="date">20260301</span>-->
+          <!--  <a href="posts/prior-auth.html">why prior authorization is broken</a>-->
+          <!--</li>-->
+        </ul>
+      </section>
 
       <hr />
     </div>
