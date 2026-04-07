@@ -221,19 +221,19 @@
 
       return softmax(q @ k.T / np.sqrt(q.shape[-1]) + mask) @ v
   ```
-  The code shows parameters `qkv`. These stand for "query", "key" and "value". `mask` is just a matrix that prevents the model from looking ahead and seeing the future tokens it is supposed to predict. 
+  The code shows parameters `qkv`. These stand for "query", "key" and "value". `mask` is just a matrix that prevents the model from looking ahead and seeing the future tokens it's supposed to predict. 
 
-  This attention part is often explained to be as a look up table. Hopefully, this becomes clear to us here.
+  I had often heard this attention part described to be like a look up table. Hopefully, this becomes clear to us here.
 
   ### Designing Q, K, and V from First Principles
 
-  We said attention mechanism lets positions talk to each other. The standard transformer way to do this is with `q`, `k` and `v`. But what are they exactly? Here is how we can put it:
+  We said attention mechanism lets positions talk to each other. The standard transformer way to do this is with `q`, `k` and `v`. But what are they exactly? We can put it this way:
   
   - Querry (`q`) = "which position am I looking for"
   - Key (`k`) = "here is my position"
   - Value (`v`) = "if you attend to me, here's my message"
 
-  For our task, we said we want position 1 to look at both positions equally (50/50). Here is how we can do that:
+  For our task, we said we want position 1 to look at both positions equally (50/50). Here's how we can do that:
 
   We build a single weight matrix `c_attn` of shape `5 x 15` `(N_EMBED x 3*(N_EMBED))` that generates `qkv` matrix.The 15 columns are three blocks of 5. The first 5 produce `q`, the next 5 produce `k`, the last 5 produce `v`.
   
@@ -254,7 +254,7 @@
 
   - **`v` weights**: The value vectors should carry the actual token identity. This is the data we want to retrieve.
 
-  Why a large constant `S`? In attention, each query-key pair first gets an attention score, which is just their dot product. If a query has S in the same coordinate where a key has 1, that dot product becomes large. If they do not align, it stays small or zero. This creates a big gap in the attention scores, so softmax makes the model focus on the positions we want. The value of `S` can be anything, as long as it is large enough to create a clear gap between the attention scores.
+  Why a large constant `S`? In attention, each query-key pair first gets an attention score, which is just their dot product. If a query has S in the same coordinate where a key has 1, that dot product becomes large. If they do not align, it stays small or zero. This creates a big gap in the attention scores, so softmax makes the model focus on the positions we want. The value of `S` can be anything, as long as it's large enough to create a clear gap between the attention scores.
 
 
   Here's the weights of `c_attn` laid out in full. The three blocks are `q` (cols 0–4), `k` (cols 5–9), and `v` (cols 10–14):
